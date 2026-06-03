@@ -1,13 +1,14 @@
 from pathlib import Path
 import argparse
 import json
-
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+
 TARGET_COL = "SepsisLabel"
 AUX_COLS = ["PatientID", "Hospital", "TimeStep"]
+_NON_FEATURE_COLS = AUX_COLS + [TARGET_COL]
 
 DROP_COLS_BASE = [
     "EtCO2",
@@ -39,25 +40,26 @@ TEMPORAL_COLS = [
     "Resp",
 ]
 
-_NON_FEATURE_COLS = AUX_COLS + [TARGET_COL]
-
-# Ajusta estos rangos para que coincidan exactamente con los usados en tu notebook.
-# Solo deben usarse para valores fisiológicamente poco plausibles.
+# Rangos de clipping fisiológico. None indica que no se aplica límite en ese extremo.
 CLIPPING_RANGES = {
-    "BaseExcess": (-32, 45),
-    "Calcium": (None, 20),
+    "Calcium":    (None, 20),
     "Creatinine": (None, 20),
-    "Glucose": (None, 800),
-    "Phosphate": (None, 18),
+    "BaseExcess": (-32, 45),
+    "Glucose":    (None, 800),
+    "Phosphate":  (None, 18),
 }
 
+
 def load_dataset(input_path: Path) -> pd.DataFrame:
-    """Carga el dataset integrado generado por build_dataset.py
+    """Carga el dataset integrado generado por build_dataset.py.
 
     Args:
-        input_path (Path): Ruta hacia el dataset en formato Parquet
+        input_path (Path): Ruta hacia el dataset en formato Parquet.
     Returns:
-        pd.DataFrame: DataFrame con los registros cargados del parquet
+        pd.DataFrame: DataFrame con los registros cargados del parquet.
+    Raises:
+        FileNotFoundError: Si el archivo no existe en la ruta indicada.
+        ValueError: Si faltan columnas obligatorias en el dataset.
     """
     if not input_path.exists():
         raise FileNotFoundError(f"No existe el archivo de entrada: {input_path}")
@@ -66,7 +68,6 @@ def load_dataset(input_path: Path) -> pd.DataFrame:
 
     required_cols = AUX_COLS + [TARGET_COL]
     missing_cols = [col for col in required_cols if col not in df.columns]
-
     if missing_cols:
         raise ValueError(f"Faltan columnas obligatorias: {missing_cols}")
 
@@ -78,15 +79,14 @@ def split_by_patient(
     test_size: float,
     random_state: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Divide el dataset en train/test a nivel de paciente y estratificando por sepsis
+    """Divide el dataset en train/test a nivel de paciente, estratificando por sepsis.
 
     Args:
         df (pd.DataFrame): DataFrame con todos los registros a nivel de timestep.
         test_size (float): Proporción de pacientes destinada al conjunto de prueba.
         random_state (int): Semilla aleatoria para reproducibilidad.
     Returns:
-        tuple: (df_train, df_test, df_patient) donde df_patient contiene
-            un resumen por paciente con la columna TieneSepsis.
+        tuple: (df_train, df_test).
     """
     df_patient = (
         df.groupby("PatientID")
@@ -110,31 +110,60 @@ def split_by_patient(
 
     return df_train, df_test
 
+
 def drop_excluded_columns(
     df_train: pd.DataFrame,
     df_test: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
-    """Elimina variables descartadas en la fase de preprocesamiento
+    """Elimina las variables descartadas en la fase de preprocesamiento.
 
     Args:
         df_train (pd.DataFrame): Conjunto de entrenamiento.
         df_test (pd.DataFrame): Conjunto de prueba.
     Returns:
         tuple: (df_train, df_test, cols_to_drop) donde cols_to_drop es la lista
-            de columnas efectivamente eliminadas.
+               de columnas efectivamente eliminadas.
     """
     cols_to_drop = [col for col in DROP_COLS_BASE if col in df_train.columns]
-
     df_train = df_train.drop(columns=cols_to_drop)
     df_test = df_test.drop(columns=cols_to_drop)
-
     return df_train, df_test, cols_to_drop
+
+
+def fix_fio2(
+    df_train: pd.DataFrame,
+    df_test: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Corrige FiO2 expresada como porcentaje y elimina valores fuera de rango fisiológico.
+
+    Algunos registros expresan FiO2 como porcentaje (1-100) en lugar de fracción (0.21-1.0).
+    Los valores entre 1 y 100 se dividen entre 100. Los valores fuera del rango
+    fisiológico plausible tras la corrección se tratan como ausentes.
+
+    Args:
+        df_train (pd.DataFrame): Conjunto de entrenamiento.
+        df_test (pd.DataFrame): Conjunto de prueba.
+    Returns:
+        tuple: (df_train, df_test) con FiO2 corregida.
+    """
+    for df in [df_train, df_test]:
+        if "FiO2" in df.columns:
+            mask_percent = (df["FiO2"] > 1) & (df["FiO2"] <= 100)
+            df.loc[mask_percent, "FiO2"] = df.loc[mask_percent, "FiO2"] / 100
+
+            mask_invalid = (df["FiO2"] < 0.21) | (df["FiO2"] > 1)
+            df.loc[mask_invalid, "FiO2"] = np.nan
+
+    return df_train, df_test
+
 
 def apply_clipping(
     df_train: pd.DataFrame,
     df_test: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    """Aplica clipping con rangos fisiológicos definidos de forma externa.
+    """Aplica clipping con rangos fisiológicos definidos en CLIPPING_RANGES.
+
+    None en cualquiera de los extremos indica que no se aplica límite en ese lado.
 
     Args:
         df_train (pd.DataFrame): Conjunto de entrenamiento.
@@ -145,19 +174,17 @@ def apply_clipping(
                con la forma {col: {"lower": ..., "upper": ...}}.
     """
     applied_ranges = {}
-
     for col, (lower, upper) in CLIPPING_RANGES.items():
+        for df in [df_train, df_test]:
+            if col in df.columns:
+                df[col] = df[col].clip(lower=lower, upper=upper)
         if col in df_train.columns:
-            df_train[col] = df_train[col].clip(lower=lower, upper=upper)
-            if col in df_test.columns:
-                df_test[col] = df_test[col].clip(lower=lower, upper=upper)
             applied_ranges[col] = {"lower": lower, "upper": upper}
-
     return df_train, df_test, applied_ranges
 
 
 def get_feature_columns(df: pd.DataFrame) -> list[str]:
-    """Obtiene las columnas predictoras excluyendo auxiliares y el target.
+    """Obtiene las columnas predictoras excluyendo auxiliares y variable objetivo.
 
     Args:
         df (pd.DataFrame): DataFrame del que extraer las columnas predictoras.
@@ -165,6 +192,7 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
         list[str]: Lista de nombres de columnas predictoras.
     """
     return [col for col in df.columns if col not in _NON_FEATURE_COLS]
+
 
 def create_missing_indicators(
     df_train: pd.DataFrame,
@@ -211,7 +239,7 @@ def temporal_forward_fill(
     """Aplica forward fill dentro de cada paciente para imputar valores ausentes.
 
     El orden por PatientID y TimeStep se garantiza internamente antes de aplicar
-    la imputación, por lo que no es necesario que el DataFrame de entrada esté ordenado.
+    el relleno, por lo que no es necesario que el DataFrame de entrada esté ordenado.
 
     Args:
         df_train (pd.DataFrame): Conjunto de entrenamiento.
@@ -264,6 +292,7 @@ def median_imputation(
 
     return df_train, df_test, medians_train
 
+
 def add_temporal_features(
     df_train: pd.DataFrame,
     df_test: pd.DataFrame,
@@ -315,6 +344,7 @@ def add_temporal_features(
 
     return df_train, df_test, created_cols
 
+
 def validate_outputs(df_train: pd.DataFrame, df_test: pd.DataFrame) -> None:
     """Comprueba que los datasets finales no tienen nulos en columnas predictoras.
 
@@ -347,7 +377,7 @@ def validate_outputs(df_train: pd.DataFrame, df_test: pd.DataFrame) -> None:
             f"Quedan nulos tras el preprocesamiento. "
             f"Train: {train_nulls}, Test: {test_nulls}"
         )
-    
+
 
 def save_outputs(
     df_train: pd.DataFrame,
@@ -388,10 +418,7 @@ def save_outputs(
     with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4, ensure_ascii=False)
 
-    saved_paths = [
-        train_path, test_path, missing_path,
-        medians_path, features_path, metadata_path,
-    ]
+    saved_paths = [train_path, test_path, missing_path, medians_path, features_path, metadata_path]
     print("\nArchivos guardados")
     print("------------------")
     for path in saved_paths:
@@ -429,6 +456,9 @@ def run_preprocessing(
 
     print("Eliminando variables descartadas...")
     df_train, df_test, dropped_cols = drop_excluded_columns(df_train, df_test)
+
+    print("Corrigiendo FiO2...")
+    df_train, df_test = fix_fio2(df_train, df_test)
 
     print("Aplicando clipping a valores fisiológicamente poco plausibles...")
     df_train, df_test, applied_clipping = apply_clipping(df_train, df_test)
@@ -508,8 +538,9 @@ def run_preprocessing(
 
     print("\nPreprocesamiento completado correctamente.")
 
+
 def parse_args() -> argparse.Namespace:
-    """Define y parsea los argumentos de línea de comandos
+    """Define y parsea los argumentos de línea de comandos.
 
     Returns:
         argparse.Namespace: Objeto con los argumentos parseados.
@@ -570,6 +601,7 @@ def parse_args() -> argparse.Namespace:
         help="Tamaño de la ventana temporal para medias móviles.",
     )
     return parser.parse_args()
+
 
 def main() -> None:
     """Punto de entrada principal del script de preprocesamiento."""
