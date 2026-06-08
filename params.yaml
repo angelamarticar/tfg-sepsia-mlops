@@ -1,0 +1,71 @@
+random_state: 42
+
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR o NONE para desactivar
+
+data:
+  raw_a_dir: data/raw/training_setA
+  raw_b_dir: data/raw/training_setB
+  combined_path: data/interim/physionet_sepsis_combined.parquet
+  processed_dir: data/processed
+  train_path: data/processed/train_preprocessed.parquet
+  test_path: data/processed/test_preprocessed.parquet
+  train_scaled_path: data/processed/train_preprocessed_scaled.parquet
+  test_scaled_path: data/processed/test_preprocessed_scaled.parquet
+
+target:
+  name: SepsisLabel
+  aux_cols:
+    - PatientID
+    - Hospital
+    - TimeStep
+ 
+preprocessing:
+  test_size: 0.2
+  rolling_window: 6
+  missing_threshold: 70
+
+training:
+  n_iter_search: 10
+  n_splits: 5
+  threshold_metric: f1
+  thresholds_start: 0.05
+  thresholds_end: 0.95
+  thresholds_step: 0.01
+  search_neg_pos_ratio: 2
+  search_verbose: 0
+  search_n_jobs: 1   # paralelismo del RandomizedSearchCV
+  model_n_jobs: 1     # paralelismo interno del estimador (1 cuando search_n_jobs=-1)
+
+mlflow:
+  enabled: true
+  tracking_uri: sqlite:///mlflow.db
+  experiment_name: sepsis-mlops
+  register_final_model: true
+  registered_model_name: sepsis-final-model
+
+evaluation:
+  best_model_metric: AUPRC
+  best_model_level: row
+  shap_sample_size: 2000
+  shap_max_display: 20
+  top_n_features: 20
+  generate_shap: true
+  generate_feature_importance: true
+
+models:
+  dummy: true
+  logistic_regression: true
+  random_forest: true
+  xgboost: true
+  lightgbm: true
+  lightgbm_without_hospadmtime: true
+
+outputs:
+  models_dir: models
+  train_metrics_dir: reports/metrics/train
+  eval_metrics_dir: reports/metrics/evaluate
+  predictions_dir: reports/predictions
+  figures_dir: reports/figures
+  tables_dir: reports/tables
+  serving_dir: deployment/model
