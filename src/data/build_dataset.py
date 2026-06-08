@@ -1,7 +1,11 @@
 import argparse
+import logging
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from core.utils import load_params
+
+logger = logging.getLogger(__name__)
 
 def load_patient_file(file_path: Path, hospital: str) -> pd.DataFrame:
     """Carga un archivo .psv de un paciente y añade columnas auxiliares.
@@ -59,12 +63,12 @@ def load_hospital_folder(folder_path: Path, hospital: str) -> pd.DataFrame:
 
         # Contador de progreso
         if i % 1000 == 0:
-            print(f"[{hospital}] Cargados {i}/{len(files)} pacientes")
+            logger.info("[%s] Cargados %d/%d pacientes...", hospital, i, len(files))
 
     df_hospital = pd.concat(patient_dfs, ignore_index=True)
 
-    print(f"[{hospital}] Dataset cargado: {df_hospital.shape}")
-    print(f"[{hospital}] Pacientes: {df_hospital['PatientID'].nunique()}")
+    logger.info("[%s] Dataset cargado con éxito. Shape: %s", hospital, df_hospital.shape)
+    logger.info("[%s] Número de pacientes únicos: %d", hospital, df_hospital["PatientID"].nunique())
 
     return df_hospital
 
@@ -118,15 +122,19 @@ def validate_dataset(df: pd.DataFrame) -> None:
         raise ValueError(f"Faltan columnas obligatorias: {missing_cols}")
 
     # Se imprimen algunos mensajes de validación
-    print("\nValidación del dataset integrado")
-    print("--------------------------------")
-    print(f"Shape: {df.shape}")
-    print(f"Pacientes totales: {df['PatientID'].nunique()}")
-    print(f"Registros totales: {len(df)}")
-    print("Distribución por hospital:")
-    print(df.groupby("Hospital")["PatientID"].nunique())
-    print("Porcentaje de registros positivos:")
-    print(df["SepsisLabel"].mean() * 100)
+    logger.info("=" * 50)
+    logger.info("VALIDACIÓN DEL DATASET INTEGRADO")
+    logger.info("=" * 50)
+    logger.info("Dimensiones de la matriz (Shape): %s", df.shape)
+    logger.info("Pacientes totales en el estudio: %d", df["PatientID"].nunique())
+    logger.info("Registros temporales totales (filas): %d", len(df))
+
+    dist_hospital = df.groupby("Hospital")["PatientID"].nunique().to_string()
+    logger.info("Distribución de pacientes por Centro:\n%s", dist_hospital)
+    
+    pos_percentage = df["SepsisLabel"].mean() * 100
+    logger.info("Porcentaje de registros positivos (SepsisLabel): %.4f%%", pos_percentage)
+    logger.info("=" * 50)
 
 
 def save_dataset(df: pd.DataFrame, output_path: Path) -> None:
@@ -144,56 +152,57 @@ def save_dataset(df: pd.DataFrame, output_path: Path) -> None:
     # Convierte el DataFrame a formato Parquet y lo guarda
     df.to_parquet(output_path, index=False)
 
-    print(f"\nDataset guardado en: {output_path}")
+    logger.info("Dataset integrado guardado con éxito en: %s", output_path)
 
-
-def parse_args() -> argparse.Namespace:
-    """Configura y lee los argumentos de la línea de comandos.
-
-    Returns:
-        argparse.Namespace: Objeto con los argumentos validados
-    """
-    parser = argparse.ArgumentParser(
-        description="Construye el dataset integrado de PhysioNet Sepsis 2019."
-    )
-
-    parser.add_argument(
-        "--input-a",
-        type=Path,
-        required=True,
-        help="Ruta a la carpeta training_setA con archivos .psv",
-    )
-
-    parser.add_argument(
-        "--input-b",
-        type=Path,
-        required=True,
-        help="Ruta a la carpeta training_setB con archivos .psv",
-    )
-
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path("data/interim/physionet_sepsis_combined.parquet"),
-        help="Ruta de salida del dataset integrado en formato parquet",
-    )
-
-    return parser.parse_args()
 
 
 def main() -> None:
-    args = parse_args()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
-    print("Construyendo dataset integrado...")
-    print(f"Input A: {args.input_a}")
-    print(f"Input B: {args.input_b}")
-    print(f"Output: {args.output}")
+    parser = argparse.ArgumentParser(
+        description="Construye el dataset integrado de PhysioNet Sepsis 2019 a partir de los conjuntos A y B."
+    )
+    parser.add_argument(
+        "--params",
+        type=str,
+        default="params.yaml",
+        help="Ruta al archivo params.yaml.",
+    )
+    args = parser.parse_args()
 
-    df = build_combined_dataset(args.input_a, args.input_b)
+    params = load_params(args.params)
+
+    log_level = params.get("logging", {}).get("level", "INFO").upper()
+    if log_level == "NONE":
+        logging.disable(logging.CRITICAL)
+    else:
+        logging.getLogger().setLevel(log_level)
+
+    data_cfg = params.get("data", {})
+
+    input_a = Path(data_cfg.get("raw_a_dir", "data/raw/training_setA"))
+    input_b = Path(data_cfg.get("raw_b_dir", "data/raw/training_setB"))
+    output = Path(
+        data_cfg.get(
+            "combined_path",
+            "data/interim/physionet_sepsis_combined.parquet",
+        )
+    )
+
+    logger.info("Iniciando la construcción del dataset integrado...")
+    logger.info("Directorio Origen A: %s", input_a)
+    logger.info("Directorio Origen B: %s", input_b)
+    logger.info("Archivo de Destino:  %s", output)
+
+    df = build_combined_dataset(input_a, input_b)
 
     validate_dataset(df)
 
-    save_dataset(df, args.output)
+    save_dataset(df, output)
 
 
 if __name__ == "__main__":

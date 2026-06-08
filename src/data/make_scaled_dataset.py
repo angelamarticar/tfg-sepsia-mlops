@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import RobustScaler
-
+from core.utils import load_params
 
 TARGET_COL = "SepsisLabel"
 AUX_COLS = ["PatientID", "Hospital", "TimeStep"]
@@ -249,42 +249,47 @@ def run_scaling(
     print("\nEscalado completado correctamente.")
 
 def parse_args() -> argparse.Namespace:
-    """Define y parsea los argumentos de línea de comandos.
-
-    Returns:
-        argparse.Namespace: Objeto con los argumentos parseados.
-    """
+    """Define y parsea los argumentos de línea de comandos."""
     parser = argparse.ArgumentParser(
-        description="Genera datasets escalados a partir de los datasets preprocesados."
+        description="Genera versiones escaladas de los conjuntos preprocesados para modelos sensibles a la escala."
     )
     parser.add_argument(
-        "--train",
-        type=Path,
-        default=Path("data/processed/train_preprocessed.parquet"),
-        help="Ruta al dataset de entrenamiento preprocesado.",
-    )
-    parser.add_argument(
-        "--test",
-        type=Path,
-        default=Path("data/processed/test_preprocessed.parquet"),
-        help="Ruta al dataset de prueba preprocesado.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("data/processed"),
-        help="Directorio donde se guardarán los datasets escalados.",
+        "--params",
+        type=str,
+        default="params.yaml",
+        help="Ruta al archivo params.yaml.",
     )
     return parser.parse_args()
-
 
 def main() -> None:
     """Punto de entrada principal del script de escalado."""
     args = parse_args()
+    params = load_params(args.params)
+
+    data_cfg = params.get("data", {})
+
+    train_path = Path(
+        data_cfg.get("train_path", "data/processed/train_preprocessed.parquet")
+    )
+
+    test_path = Path(
+        data_cfg.get("test_path", "data/processed/test_preprocessed.parquet")
+    )
+
+    output_dir = Path(
+        data_cfg.get("processed_dir", "data/processed")
+    )
+
+    print("Ejecutando escalado...")
+    print(f"Params: {args.params}")
+    print(f"Train: {train_path}")
+    print(f"Test: {test_path}")
+    print(f"Output dir: {output_dir}")
+
     run_scaling(
-        train_path=args.train,
-        test_path=args.test,
-        output_dir=args.output_dir,
+        train_path=train_path,
+        test_path=test_path,
+        output_dir=output_dir,
     )
 
 

@@ -1,10 +1,13 @@
 from pathlib import Path
 import argparse
 import json
+import logging
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from core.utils import load_params
 
+logger = logging.getLogger(__name__)
 
 TARGET_COL = "SepsisLabel"
 AUX_COLS = ["PatientID", "Hospital", "TimeStep"]
@@ -320,7 +323,7 @@ def add_temporal_features(
     available_temporal_cols = [col for col in temporal_cols if col in df_train.columns]
     missing_temporal_cols = [col for col in temporal_cols if col not in df_train.columns]
     if missing_temporal_cols:
-        print(f"[WARN] Columnas temporales no encontradas y omitidas: {missing_temporal_cols}")
+        logger.warning("Columnas temporales no encontradas en el dataset y omitidas: %s", missing_temporal_cols)
 
     def _add_features(df: pd.DataFrame, col: str) -> pd.DataFrame:
         rolling_col = f"{col}_rolling_mean_{rolling_window}h"
@@ -361,16 +364,18 @@ def validate_outputs(df_train: pd.DataFrame, df_test: pd.DataFrame) -> None:
     pct_sepsis_train = df_train.groupby("PatientID")[TARGET_COL].max().mean() * 100
     pct_sepsis_test = df_test.groupby("PatientID")[TARGET_COL].max().mean() * 100
 
-    print("\nValidación final")
-    print("----------------")
-    print(f"Train shape: {df_train.shape}")
-    print(f"Test shape: {df_test.shape}")
-    print(f"Pacientes train: {df_train['PatientID'].nunique()}")
-    print(f"Pacientes test: {df_test['PatientID'].nunique()}")
-    print(f"Nulos en predictores train: {train_nulls}")
-    print(f"Nulos en predictores test: {test_nulls}")
-    print(f"% pacientes con sepsis train: {pct_sepsis_train:.2f}")
-    print(f"% pacientes con sepsis test: {pct_sepsis_test:.2f}")
+    logger.info("=" * 50)
+    logger.info("VALIDACIÓN FINAL DEL PREPROCESAMIENTO")
+    logger.info("=" * 50)
+    logger.info("Train shape: %s", df_train.shape)
+    logger.info("Test shape: %s", df_test.shape)
+    logger.info("Pacientes train: %d", df_train['PatientID'].nunique())
+    logger.info("Pacientes test: %d", df_test['PatientID'].nunique())
+    logger.info("Nulos en predictores train: %d", train_nulls)
+    logger.info("Nulos en predictores test: %d", test_nulls)
+    logger.info("%% Pacientes con Sepsis (Train): %.2f%%", pct_sepsis_train)
+    logger.info("%% Pacientes con Sepsis (Test):  %.2f%%", pct_sepsis_test)
+    logger.info("=" * 50)
 
     if train_nulls > 0 or test_nulls > 0:
         raise ValueError(
@@ -419,10 +424,13 @@ def save_outputs(
         json.dump(metadata, f, indent=4, ensure_ascii=False)
 
     saved_paths = [train_path, test_path, missing_path, medians_path, features_path, metadata_path]
-    print("\nArchivos guardados")
-    print("------------------")
+
+    logger.info("=" * 50)
+    logger.info("ARTEFACTOS DE PREPROCESAMIENTO GUARDADOS")
+    logger.info("=" * 50)
     for path in saved_paths:
-        print(path)
+        logger.info("Creado archivo: %s", path)
+    logger.info("=" * 50)
 
 
 def run_preprocessing(
@@ -444,26 +452,26 @@ def run_preprocessing(
                                    indicador de ausencia.
         rolling_window (int): Tamaño de la ventana para las medias móviles (en horas).
     """
-    print("Cargando dataset integrado...")
+    logger.info("Cargando dataset unificado desde: %s", input_path)
     df = load_dataset(input_path)
 
-    print("Realizando particionado por paciente...")
+    logger.info("Realizando particionado estratificado por paciente (Test size: %s)...", test_size)
     df_train, df_test = split_by_patient(
         df=df,
         test_size=test_size,
         random_state=random_state,
     )
 
-    print("Eliminando variables descartadas...")
+    logger.info("Eliminando variables con baja representatividad clínica inicial...")
     df_train, df_test, dropped_cols = drop_excluded_columns(df_train, df_test)
 
-    print("Corrigiendo FiO2...")
+    logger.info("Corrigiendo inconsistencias de escala en columna 'FiO2'...")
     df_train, df_test = fix_fio2(df_train, df_test)
 
-    print("Aplicando clipping a valores fisiológicamente poco plausibles...")
+    logger.info("Aplicando clipping a valores fisiológicamente extremos/atípicos...")
     df_train, df_test, applied_clipping = apply_clipping(df_train, df_test)
 
-    print("Creando indicadores de ausencia...")
+    logger.info("Evaluando y creando indicadores de ausencia (Umbral: %s%%)...", missing_threshold)
     feature_cols_before_indicators = get_feature_columns(df_train)
     df_train, df_test, missing_summary, indicator_cols = create_missing_indicators(
         df_train=df_train,
@@ -478,23 +486,23 @@ def run_preprocessing(
     ]
     unknown_no_impute = [col for col in NO_IMPUTE_COLS if col not in feature_cols_before_indicators]
     if unknown_no_impute:
-        print(f"[WARN] NO_IMPUTE_COLS no encontradas en features: {unknown_no_impute}")
+        logger.warning("Columnas definidas en NO_IMPUTE_COLS ausentes en el espacio de features: %s", unknown_no_impute)
 
-    print("Aplicando forward fill por paciente...")
+    logger.info("Imputación Fase 1: Aplicando Forward Fill intrapaciente (Series Temporales)...")
     df_train, df_test = temporal_forward_fill(
         df_train=df_train,
         df_test=df_test,
         cols_to_impute=cols_to_impute,
     )
 
-    print("Aplicando imputación con mediana de entrenamiento...")
+    logger.info("Imputación Fase 2: Rellenando nulos restantes con la mediana calculada de Train...")
     df_train, df_test, medians_train = median_imputation(
         df_train=df_train,
         df_test=df_test,
         cols_to_impute=cols_to_impute,
     )
 
-    print("Generando características temporales...")
+    logger.info("Ingeniería de Características: Generando medias móviles (%dh) y diferencias (1h)...", rolling_window)
     df_train, df_test, temporal_created_cols = add_temporal_features(
         df_train=df_train,
         df_test=df_test,
@@ -526,7 +534,7 @@ def run_preprocessing(
 
     validate_outputs(df_train, df_test)
 
-    print("Guardando resultados...")
+    logger.info("Escribiendo y exportando resultados persistentes...")
     save_outputs(
         df_train=df_train,
         df_test=df_test,
@@ -536,83 +544,75 @@ def run_preprocessing(
         metadata=metadata,
     )
 
-    print("\nPreprocesamiento completado correctamente.")
+    logger.info("Flujo de preprocesamiento completado exitosamente de principio a fin.")
 
-
-def parse_args() -> argparse.Namespace:
-    """Define y parsea los argumentos de línea de comandos.
-
-    Returns:
-        argparse.Namespace: Objeto con los argumentos parseados.
-    """
-    def proportion(value: str) -> float:
-        v = float(value)
-        if not 0 < v < 1:
-            raise argparse.ArgumentTypeError(
-                f"Debe ser un valor entre 0 y 1 (exclusivo). Recibido: {v}"
-            )
-        return v
-
-    def percentage(value: str) -> float:
-        v = float(value)
-        if not 0 <= v <= 100:
-            raise argparse.ArgumentTypeError(
-                f"Debe ser un porcentaje entre 0 y 100. Recibido: {v}"
-            )
-        return v
-
-    parser = argparse.ArgumentParser(
-        description="Aplica el preprocesamiento base al dataset integrado de PhysioNet Sepsis 2019."
-    )
-    parser.add_argument(
-        "--input",
-        type=Path,
-        default=Path("data/interim/physionet_sepsis_combined.parquet"),
-        help="Ruta al dataset integrado en formato parquet.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("data/processed"),
-        help="Directorio donde se guardarán los datasets preprocesados.",
-    )
-    parser.add_argument(
-        "--test-size",
-        type=proportion,
-        default=0.2,
-        help="Proporción de pacientes destinada al conjunto de prueba (entre 0 y 1).",
-    )
-    parser.add_argument(
-        "--random-state",
-        type=int,
-        default=42,
-        help="Semilla aleatoria para reproducibilidad.",
-    )
-    parser.add_argument(
-        "--missing-threshold",
-        type=percentage,
-        default=70.0,
-        help="Porcentaje de valores ausentes a partir del cual se crea indicador de ausencia (0-100).",
-    )
-    parser.add_argument(
-        "--rolling-window",
-        type=int,
-        default=6,
-        help="Tamaño de la ventana temporal para medias móviles.",
-    )
-    return parser.parse_args()
 
 
 def main() -> None:
     """Punto de entrada principal del script de preprocesamiento."""
-    args = parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    parser = argparse.ArgumentParser(
+        description="Aplica el preprocesamiento al dataset integrado y genera los conjuntos de entrenamiento y test."
+    )
+    parser.add_argument(
+        "--params",
+        type=str,
+        default="params.yaml",
+        help="Ruta al archivo params.yaml.",
+    )
+    args = parser.parse_args()
+
+    params = load_params(args.params)
+
+    log_level = params.get("logging", {}).get("level", "INFO").upper()
+    if log_level == "NONE":
+        logging.disable(logging.CRITICAL)
+    else:
+        logging.getLogger().setLevel(log_level)
+
+    logger.info("Nivel de logging configurado: %s", log_level)
+    logger.debug("params.yaml cargado desde: %s", args.params)
+
+    data_cfg = params.get("data", {})
+    preprocessing_cfg = params.get("preprocessing", {})
+
+    input_path = Path(
+        data_cfg.get("combined_path", "data/interim/physionet_sepsis_combined.parquet")
+    )
+
+    output_dir = Path(
+        data_cfg.get("processed_dir", "data/processed")
+    )
+
+    test_size = float(
+        preprocessing_cfg.get("test_size", 0.2)
+    )
+
+    random_state = int(
+        params.get("random_state", 42)
+    )
+
+    missing_threshold = float(
+        preprocessing_cfg.get("missing_threshold", 70.0)
+    )
+
+    rolling_window = int(
+        preprocessing_cfg.get("rolling_window", 6)
+    )
+
     run_preprocessing(
-        input_path=args.input,
-        output_dir=args.output_dir,
-        test_size=args.test_size,
-        random_state=args.random_state,
-        missing_threshold=args.missing_threshold,
-        rolling_window=args.rolling_window,
+        input_path=input_path,
+        output_dir=output_dir,
+        test_size=test_size,
+        random_state=random_state,
+        missing_threshold=missing_threshold,
+        rolling_window=rolling_window,
     )
 
 
