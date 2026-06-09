@@ -1,0 +1,297 @@
+schema: '2.0'
+stages:
+  build_dataset:
+    cmd: python src/data/build_dataset.py --params params.yaml
+    deps:
+    - path: data/raw/training_setA
+      hash: md5
+      md5: 67808c65aabd8c665ebfc8a8557d2335.dir
+      size: 131388704
+      nfiles: 20336
+    - path: data/raw/training_setB
+      hash: md5
+      md5: 6b49408e3e37bc83daa3dd803dc32c15.dir
+      size: 123668780
+      nfiles: 20000
+    - path: src/core/utils.py
+      hash: md5
+      md5: bcbae87df1f18210962609e270f270f4
+      size: 4566
+    - path: src/data/build_dataset.py
+      hash: md5
+      md5: 8aaff1cb445560473a017f259d0344e8
+      size: 6969
+    params:
+      params.yaml:
+        data.combined_path: data/interim/physionet_sepsis_combined.parquet
+        data.raw_a_dir: data/raw/training_setA
+        data.raw_b_dir: data/raw/training_setB
+        logging:
+          level: INFO
+    outs:
+    - path: data/interim/physionet_sepsis_combined.parquet
+      hash: md5
+      md5: a2f78d2d635a157b3f5bd5fd5899bd1f
+      size: 17269157
+  preprocess:
+    cmd: python src/data/preprocess.py --params params.yaml
+    deps:
+    - path: data/interim/physionet_sepsis_combined.parquet
+      hash: md5
+      md5: a2f78d2d635a157b3f5bd5fd5899bd1f
+      size: 17269157
+    - path: src/core/utils.py
+      hash: md5
+      md5: bcbae87df1f18210962609e270f270f4
+      size: 4566
+    - path: src/data/preprocess.py
+      hash: md5
+      md5: e808dbb7c7591c8c4c58c6c28cde9052
+      size: 22857
+    params:
+      params.yaml:
+        data.combined_path: data/interim/physionet_sepsis_combined.parquet
+        data.processed_dir: data/processed
+        logging:
+          level: INFO
+        preprocessing:
+          test_size: 0.2
+          rolling_window: 6
+          missing_threshold: 70
+        random_state: 42
+    outs:
+    - path: data/processed/feature_columns.json
+      hash: md5
+      md5: 50a3e10059b4f4e21814c5a98d435970
+      size: 1128
+    - path: data/processed/imputation_medians_train.csv
+      hash: md5
+      md5: c54f8a89275fa4c7be335ce147612123
+      size: 337
+    - path: data/processed/missing_decisions.csv
+      hash: md5
+      md5: e5d92ade7eb7e4c4425ba222d5e28cf8
+      size: 729
+    - path: data/processed/preprocessing_metadata.json
+      hash: md5
+      md5: d6413609e464d73baa164345dadad972
+      size: 2823
+    - path: data/processed/test_preprocessed.parquet
+      hash: md5
+      md5: f2f81a8ff9277b16a7e77deb87848279
+      size: 8845264
+    - path: data/processed/train_preprocessed.parquet
+      hash: md5
+      md5: 87880f8723c6355e7a83e4b34c38590e
+      size: 35044296
+  make_scaled_dataset:
+    cmd: python src/data/make_scaled_dataset.py --params params.yaml
+    deps:
+    - path: data/processed/test_preprocessed.parquet
+      hash: md5
+      md5: f2f81a8ff9277b16a7e77deb87848279
+      size: 8845264
+    - path: data/processed/train_preprocessed.parquet
+      hash: md5
+      md5: 87880f8723c6355e7a83e4b34c38590e
+      size: 35044296
+    - path: src/core/utils.py
+      hash: md5
+      md5: bcbae87df1f18210962609e270f270f4
+      size: 4566
+    - path: src/data/make_scaled_dataset.py
+      hash: md5
+      md5: 27b61ebf405956203fb98b8c173bf73c
+      size: 10328
+    params:
+      params.yaml:
+        data.processed_dir: data/processed
+        data.test_path: data/processed/test_preprocessed.parquet
+        data.train_path: data/processed/train_preprocessed.parquet
+        logging:
+          level: INFO
+    outs:
+    - path: data/processed/robust_scaler_preprocessor.joblib
+      hash: md5
+      md5: 8da06678819bbab9b6a84c523c1857ce
+      size: 5073
+    - path: data/processed/scaling_metadata.json
+      hash: md5
+      md5: bef5446001e75ba88f0982fb7c25473f
+      size: 3086
+    - path: data/processed/test_preprocessed_scaled.parquet
+      hash: md5
+      md5: 94ee95db529617132f748796e2036a5d
+      size: 8905111
+    - path: data/processed/train_preprocessed_scaled.parquet
+      hash: md5
+      md5: 3daf3f4b0f009785c0cf657e6cf951b5
+      size: 35156421
+  train:
+    cmd: python scripts/train.py --params params.yaml
+    deps:
+    - path: data/processed/test_preprocessed.parquet
+      hash: md5
+      md5: f2f81a8ff9277b16a7e77deb87848279
+      size: 8845264
+    - path: data/processed/test_preprocessed_scaled.parquet
+      hash: md5
+      md5: 94ee95db529617132f748796e2036a5d
+      size: 8905111
+    - path: data/processed/train_preprocessed.parquet
+      hash: md5
+      md5: 87880f8723c6355e7a83e4b34c38590e
+      size: 35044296
+    - path: data/processed/train_preprocessed_scaled.parquet
+      hash: md5
+      md5: 3daf3f4b0f009785c0cf657e6cf951b5
+      size: 35156421
+    - path: scripts/train.py
+      hash: md5
+      md5: e5b4b734197438c3059731bec250025b
+      size: 41998
+    - path: src/core/metrics.py
+      hash: md5
+      md5: c21500a21cd58b086ee10aca55035fe7
+      size: 7567
+    - path: src/core/utils.py
+      hash: md5
+      md5: bcbae87df1f18210962609e270f270f4
+      size: 4566
+    params:
+      params.yaml:
+        data.test_path: data/processed/test_preprocessed.parquet
+        data.test_scaled_path: data/processed/test_preprocessed_scaled.parquet
+        data.train_path: data/processed/train_preprocessed.parquet
+        data.train_scaled_path: data/processed/train_preprocessed_scaled.parquet
+        logging:
+          level: INFO
+        mlflow:
+          enabled: true
+          tracking_uri: sqlite:///mlflow.db
+          experiment_name: sepsis-mlops
+          register_final_model: true
+          registered_model_name: sepsis-final-model
+        models:
+          dummy: true
+          logistic_regression: true
+          random_forest: true
+          xgboost: true
+          lightgbm: true
+          lightgbm_without_hospadmtime: true
+        outputs.models_dir: models
+        outputs.predictions_dir: reports/predictions
+        outputs.train_metrics_dir: reports/metrics/train
+        random_state: 42
+        target:
+          name: SepsisLabel
+          aux_cols:
+          - PatientID
+          - Hospital
+          - TimeStep
+        training:
+          n_iter_search: 10
+          n_splits: 5
+          threshold_metric: f1
+          thresholds_start: 0.05
+          thresholds_end: 0.95
+          thresholds_step: 0.01
+          search_neg_pos_ratio: 2
+          search_verbose: 0
+          search_n_jobs: 1
+          model_n_jobs: 1
+    outs:
+    - path: models/
+      hash: md5
+      md5: f6784d5d55894c952aadd01e8ed74c72.dir
+      size: 5762787
+      nfiles: 12
+    - path: reports/metrics/train/
+      hash: md5
+      md5: 25dfe35314169dfacec9d6a9dc0299ed.dir
+      size: 73668
+      nfiles: 21
+    - path: reports/predictions/
+      hash: md5
+      md5: fed3c99c02b39ec8ed7277ebdeb8575f.dir
+      size: 66954142
+      nfiles: 12
+  evaluate:
+    cmd: python scripts/evaluate.py --params params.yaml
+    deps:
+    - path: models/
+      hash: md5
+      md5: f6784d5d55894c952aadd01e8ed74c72.dir
+      size: 5762787
+      nfiles: 12
+    - path: reports/metrics/train/
+      hash: md5
+      md5: 25dfe35314169dfacec9d6a9dc0299ed.dir
+      size: 73668
+      nfiles: 21
+    - path: reports/predictions/
+      hash: md5
+      md5: fed3c99c02b39ec8ed7277ebdeb8575f.dir
+      size: 66954142
+      nfiles: 12
+    - path: scripts/evaluate.py
+      hash: md5
+      md5: f695db34c236e608c8dc9fe333216bc0
+      size: 27480
+    - path: src/core/plots.py
+      hash: md5
+      md5: 15922ab3ff32a4f7e60a75e440b65e4d
+      size: 9390
+    - path: src/core/utils.py
+      hash: md5
+      md5: bcbae87df1f18210962609e270f270f4
+      size: 4566
+    params:
+      params.yaml:
+        data.test_path: data/processed/test_preprocessed.parquet
+        data.test_scaled_path: data/processed/test_preprocessed_scaled.parquet
+        evaluation:
+          best_model_metric: AUPRC
+          best_model_level: row
+          shap_sample_size: 2000
+          shap_max_display: 20
+          top_n_features: 20
+          generate_shap: true
+          generate_feature_importance: true
+        logging:
+          level: INFO
+        outputs.eval_metrics_dir: reports/metrics/evaluate
+        outputs.figures_dir: reports/figures
+        outputs.models_dir: models
+        outputs.predictions_dir: reports/predictions
+        outputs.serving_dir: deployment/model
+        outputs.tables_dir: reports/tables
+        outputs.train_metrics_dir: reports/metrics/train
+        random_state: 42
+        target:
+          name: SepsisLabel
+          aux_cols:
+          - PatientID
+          - Hospital
+          - TimeStep
+    outs:
+    - path: deployment/model/
+      hash: md5
+      md5: fcb04a92ab51d9ae8064fa933f020324.dir
+      size: 988767
+      nfiles: 3
+    - path: reports/figures/
+      hash: md5
+      md5: f84895c64a31e01711e161951e28d9f9.dir
+      size: 1000667
+      nfiles: 8
+    - path: reports/metrics/evaluate/
+      hash: md5
+      md5: 1f32da11424a5e269a3241fd091b25d6.dir
+      size: 2021
+      nfiles: 2
+    - path: reports/tables/
+      hash: md5
+      md5: e7ccfa1ba236c98def4a7cfdba052feb.dir
+      size: 777
+      nfiles: 1

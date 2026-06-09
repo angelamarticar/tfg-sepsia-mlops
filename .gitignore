@@ -153,6 +153,7 @@ activemq-data/
 .venv
 env/
 venv/
+.venv/
 ENV/
 env.bak/
 venv.bak/
@@ -219,3 +220,41 @@ __marimo__/
 data/processed/*.json
 data/processed/*.csv
 data/processed/*.joblib
+/models
+
+
+# MLflow local tracking
+mlruns/
+mlartifacts/
+mlflow.db
+
+# Local experiment params
+params_prueba.yaml
+
+
+# Models and deployment artifacts
+deployment/model/
+models/
+artifacts/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Data files
+data/**/*.parquet
+data/**/*.csv
+data/**/*.xlsx
+data/**/*.pkl
+data/**/*.joblib
+
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+

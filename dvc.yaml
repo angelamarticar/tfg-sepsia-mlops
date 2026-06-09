@@ -1,0 +1,111 @@
+stages:
+  build_dataset:
+    cmd: python src/data/build_dataset.py --params params.yaml
+    deps:
+      - src/data/build_dataset.py
+      - src/core/utils.py
+      - data/raw/training_setA
+      - data/raw/training_setB
+    params:
+      - data.raw_a_dir
+      - data.raw_b_dir
+      - data.combined_path
+      - logging
+    outs:
+      - data/interim/physionet_sepsis_combined.parquet
+
+  preprocess:
+    cmd: python src/data/preprocess.py --params params.yaml
+    deps:
+      - src/data/preprocess.py
+      - src/core/utils.py
+      - data/interim/physionet_sepsis_combined.parquet
+    params:
+      - random_state
+      - data.combined_path
+      - data.processed_dir
+      - preprocessing
+      - logging
+    outs:
+      - data/processed/train_preprocessed.parquet
+      - data/processed/test_preprocessed.parquet
+      - data/processed/feature_columns.json
+      - data/processed/imputation_medians_train.csv
+      - data/processed/missing_decisions.csv
+      - data/processed/preprocessing_metadata.json
+
+  make_scaled_dataset:
+    cmd: python src/data/make_scaled_dataset.py --params params.yaml
+    deps:
+      - src/data/make_scaled_dataset.py
+      - src/core/utils.py
+      - data/processed/train_preprocessed.parquet
+      - data/processed/test_preprocessed.parquet
+    params:
+      - data.train_path
+      - data.test_path
+      - data.processed_dir
+      - logging
+    outs:
+      - data/processed/train_preprocessed_scaled.parquet
+      - data/processed/test_preprocessed_scaled.parquet
+      - data/processed/robust_scaler_preprocessor.joblib
+      - data/processed/scaling_metadata.json
+
+  train:
+    cmd: python scripts/train.py --params params.yaml
+    deps:
+      - scripts/train.py
+      - src/core/metrics.py
+      - src/core/utils.py
+      - data/processed/train_preprocessed.parquet
+      - data/processed/test_preprocessed.parquet
+      - data/processed/train_preprocessed_scaled.parquet
+      - data/processed/test_preprocessed_scaled.parquet
+    params:
+      - random_state
+      - data.train_path
+      - data.test_path
+      - data.train_scaled_path
+      - data.test_scaled_path
+      - training
+      - models
+      - target
+      - outputs.models_dir
+      - outputs.train_metrics_dir
+      - outputs.predictions_dir
+      - mlflow
+      - logging
+    outs:
+      - models/
+      - reports/metrics/train/
+      - reports/predictions/
+
+  evaluate:
+      cmd: python scripts/evaluate.py --params params.yaml
+      deps:
+        - scripts/evaluate.py
+        - src/core/plots.py
+        - src/core/utils.py
+        - models/
+        - reports/metrics/train/
+        - reports/predictions/
+      params:
+        - random_state
+        - evaluation
+        - target
+        - data.test_path
+        - data.test_scaled_path
+        - outputs.models_dir
+        - outputs.train_metrics_dir
+        - outputs.eval_metrics_dir
+        - outputs.predictions_dir
+        - outputs.figures_dir
+        - outputs.tables_dir
+        - outputs.serving_dir
+        - logging
+      outs:
+        - reports/metrics/evaluate/
+        - reports/figures/
+        - reports/tables/
+        - deployment/model/

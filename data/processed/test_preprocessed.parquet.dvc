@@ -1,5 +1,0 @@
-outs:
-- md5: f2f81a8ff9277b16a7e77deb87848279
-  size: 8845264
-  hash: md5
-  path: test_preprocessed.parquet

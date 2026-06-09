@@ -1,4 +1,2 @@
 /train_preprocessed.parquet
 /test_preprocessed.parquet
-/train_preprocessed_scaled.parquet
-/test_preprocessed_scaled.parquet
