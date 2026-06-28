@@ -1,4 +1,4 @@
-# SEPSIA: Sistema de Evaluación Predictiva de Sepsis con Inteligencia Artificial
+# SEPSIA: Sistema de Evaluación Predictiva de Sepsis basado en Inteligencia Artificial
 
 Trabajo de Fin de Grado centrado en el desarrollo de un prototipo predictivo para la
 detección temprana de sepsis a partir de datos clínicos temporales del
